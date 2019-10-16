@@ -8,7 +8,7 @@ jsonrpc-utils
 
 Create call on client::
 
-    client_jsoncall = jsonrpc.JSONCall(call)
+    client_jsoncall = jsonrpc.JSONCall(method_name, params={'color':'blue', 'size': 4})
 
 Send the call::
 
