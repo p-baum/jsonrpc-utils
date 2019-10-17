@@ -1,6 +1,8 @@
 jsonrpc-utils
 =============
 
+Bit rough around the edges right now but all tests passing and works well for my needs.
+
 .. code:: python
 
     import jsonrpc
@@ -41,7 +43,7 @@ Call a method using the request and send it back:
     try:
         result = getattr(location_of_func, method)(*args, **kwargs)
         server_jsoncall.set_result(result)
-    exception Exception as e:
+    except Exception as e:
         server_jsoncall.set_error(1, message=str(e))
     # send the response
     the_response = server_jsoncall.response() # 'utf8' is default
