@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "jsonrpc-utils"
+version = "0.1.0"
+description = "A couple of transport agnostic classes and functions encapsulating json-rpc version 2.0."
+authors = ["p-baum <mrpaul@posteo.de>"]
+packages = [
+    {include = "jsonrpc"}
+]
+
+[tool.poetry.dependencies]
+python = "^3.6"
+
+[tool.poetry.dev-dependencies]
+pylint = "^2.4"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
