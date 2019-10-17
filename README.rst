@@ -1,20 +1,28 @@
 jsonrpc-utils
 =============
 
-::
+Bit rough around the edges right now but all tests passing and works well for my needs.
+
+.. code:: python
 
     import jsonrpc
     json_dumps_kwargs = {'indent': 2}
 
-Create call on client::
+Create call on client:
+
+.. code:: python
 
     client_jsoncall = jsonrpc.JSONCall(method_name, params={'color':'blue', 'size': 4})
 
-Send the call::
+Send the call:
+
+.. code:: python
 
     the_call = client_jsoncall.request(encoding='utf8', **json_dumps_kwargs)
+    
+Receive the call on server (responding immediately if parse error)
 
-Receive the call on server (responding immediately if parse error) ::
+.. code:: python
 
     try:
         server_jsoncall = jsonrpc.JSONCall.from_request(the_call)
@@ -25,7 +33,9 @@ Receive the call on server (responding immediately if parse error) ::
         the_response = jsoncall_error.response(encoding='utf8', **json_dumps_kwargs)
         return
 
-Call a method using the request and send it back::
+Call a method using the request and send it back:
+
+.. code:: python
 
     method = server_jsoncall.method
     args = server_jsoncall.args
@@ -33,13 +43,15 @@ Call a method using the request and send it back::
     try:
         result = getattr(location_of_func, method)(*args, **kwargs)
         server_jsoncall.set_result(result)
-    exception Exception as e:
+    except Exception as e:
         server_jsoncall.set_error(1, message=str(e))
     # send the response
     the_response = server_jsoncall.response() # 'utf8' is default
 
 Client receives the response.
-Assigning response raises exception if its an error::
+Assigning response raises exception if its an error:
+
+.. code:: python
 
     try:
         client_jsoncall.assign_response(the_response)
