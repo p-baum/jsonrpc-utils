@@ -1,8 +1,6 @@
 jsonrpc-utils
 =============
 
-Bit rough around the edges right now but all tests passing and works well for my needs.
-
 .. code:: python
 
     import jsonrpc
