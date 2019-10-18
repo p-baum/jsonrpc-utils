@@ -7,7 +7,7 @@ from jsonrpc import jsonrpc
 
 
 def test_version():
-    assert __version__ == '0.1.0'
+    assert __version__ == '0.1.1'
     
 logging.basicConfig(format="%(module)s: %(levelname)s: %(message)s", level=logging.DEBUG)
 logger = logging.getLogger(__name__)
