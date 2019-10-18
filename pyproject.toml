@@ -2,7 +2,7 @@
 name = "jsonrpc-utils"
 version = "0.1.0"
 description = "A couple of transport agnostic classes and functions encapsulating json-rpc version 2.0."
-authors = ["p-baum <mrpaul@posteo.de>"]
+authors = ["p-baum"]
 packages = [
     {include = "jsonrpc"}
 ]
