@@ -55,6 +55,6 @@ Assigning response raises exception if its an error:
         client_jsoncall.assign_response(the_response)
     except jsonrpc.JSONCallError as jsoncall_error:
         error = client_jsoncall.error  # or
-        error = jsoncall_error.data
+        error = jsoncall_error.values
     else:
         result = client_jsoncall.result
