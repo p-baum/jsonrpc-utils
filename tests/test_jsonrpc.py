@@ -11,8 +11,6 @@ def test_version():
     
 logging.basicConfig(format="%(module)s: %(levelname)s: %(message)s", level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-logging.getLogger('urllib3.connectionpool').setLevel(40)
-logging.getLogger('selenium.webdriver.remote.remote_connection').setLevel(40)
 
 
 class TestJSONRPC(unittest.TestCase):
@@ -25,7 +23,7 @@ class TestJSONRPC(unittest.TestCase):
         )
         server_jsoncall = jsonrpc.JSONCall.from_request(client_jsoncall.request())
         self.assertEqual(client_jsoncall, server_jsoncall)
-        self.assertEqual(client_jsoncall.data, call_d)
+        self.assertEqual(client_jsoncall.values, call_d)
         self.assertEqual(client_jsoncall.request(encode='utf8'), call.encode('utf8'))
         return client_jsoncall
 
@@ -83,36 +81,69 @@ class TestJSONRPC(unittest.TestCase):
             self.create(call)
         self.assertIn('-32600',str(e.exception))
 
+    def test_set_server_errors(self):
+        # -32000 to -32099 Reserved for implementation-defined server-errors.
+        # (better read as -32099 to -32000)
+
+        # test type enforcement
+        server_errors = {
+            '23': 'not an int'
+        }
+        with self.assertRaises(TypeError): 
+            jsonrpc.set_server_errors(server_errors)
+        server_errors = {
+            23: 122
+        }
+        with self.assertRaises(TypeError): 
+            jsonrpc.set_server_errors(server_errors)
+
+        # test range enforcement
+        server_errors = {
+            -32100: 'something weird'
+        }
+        with self.assertRaises(ValueError): 
+            jsonrpc.set_server_errors(server_errors)
+        server_errors = {
+            -32099: 'something weird'
+        }
+        jsonrpc.set_server_errors(server_errors)
+        server_errors = {
+            -32000: 'something weird'
+        }
+        jsonrpc.set_server_errors(server_errors)
+        server_errors = {
+            -31999: 'something weird'
+        }
+        with self.assertRaises(ValueError): 
+            jsonrpc.set_server_errors(server_errors)
+    
     def test_error_codes(self):
-        jsonrpc.register_error(1, "A small mistake")
-        jsonrpc.register_error(2, "It's all gone pete tong")
-        jsoncall = self.create(
+        client_jsoncall = self.create(
             '{"jsonrpc": "2.0", "method": "add", "params": [1], "id": 1}',
         )
-        jsoncall.set_error(1)
-        self.assertEqual(jsoncall.error['message'], "A small mistake")
-        jsoncall.set_error(2)
-        self.assertEqual(jsoncall.error['message'], "It's all gone pete tong")
-        # automatic registration of error messages
-        jsoncall.set_error(3, message="Holy crap batman")
-        self.assertEqual(jsoncall.error['message'], jsonrpc.get_error(3)[0])
-        # automatic registration of error messages (from response)
-        jsoncall = self.create(
-            '{"jsonrpc": "2.0", "method": "add", "params": [1], "id": 1}',
-        )
-        with self.assertRaises(jsonrpc.JSONCallError) as e:
-            jsoncall.assign_response(
-                '{"jsonrpc": "2.0", "error": {"code": 4, "message": "Thats nasty yo"}, "id": 1}'
-            )
-        self.assertEqual(jsoncall.error['message'], jsonrpc.get_error(4)[0])
-        # consistent messages for codes
-        with self.assertRaises(Exception) as e:
-            jsoncall.assign_response(
-                '{"jsonrpc": "2.0", "error": {"code": 4, "message": "Changed message"}, "id": 1}'
-            )
-        self.assertEqual(str(e.exception), 'inconsistant message for custom error code 4')
+        server_jsoncall = jsonrpc.JSONCall.from_request(client_jsoncall.request()) 
+        with self.assertRaises(ValueError): 
+            server_jsoncall.set_error(1)
+        server_jsoncall.set_error(1, message="A small mistake")
+        self.assertEqual(server_jsoncall.error['message'], "A small mistake")
+        with self.assertRaises(jsonrpc.JSONCallError) as e: 
+            client_jsoncall.assign_response(server_jsoncall.response())
+        self.assertEqual(client_jsoncall, server_jsoncall)
+        self.assertEqual(client_jsoncall.error, e.exception.values)
 
+        # try to use builtin code with wrong message
+        with self.assertRaises(ValueError) as e: 
+            server_jsoncall.set_error(-32700, message="A big mistake")
+        self.assertIn('Parse error', str(e.exception))
 
+        # try to use server-error code with wrong message
+        server_errors = {
+            -32000: 'something weird'
+        }
+        jsonrpc.set_server_errors(server_errors)
+        with self.assertRaises(ValueError) as e: 
+            server_jsoncall.set_error(-32000, message="A big mistake")
+        self.assertIn('something weird', str(e.exception))
 
     def compare_example(self, call, expected_response, result=None, error_code=None):
         # create the call
@@ -156,7 +187,7 @@ class TestJSONRPC(unittest.TestCase):
             self.assertIsInstance(client_jsoncall.error, dict)
             self.assertEqual(client_jsoncall.error, server_jsoncall.error)
             # error is also available on exception
-            self.assertEqual(client_jsoncall.error, e.exception.data)
+            self.assertEqual(client_jsoncall.error, e.exception.values)
         else: # result
             client_jsoncall.assign_response(the_response)
             # client and server should now have same result

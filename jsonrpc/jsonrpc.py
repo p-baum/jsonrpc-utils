@@ -10,101 +10,68 @@ JSONRPC_VERSION='2.0'
 PARAM_KEY_TYPES = (str, )
 PARAM_VALUE_TYPES = PARAM_KEY_TYPES + (int, float)
 
+_SERVER_ERROR_RANGE = (-32099, -32000)
 
-NO_CODE_ERROR = 'Unknown error'
+_RESERVED_CODES = {
+    _SERVER_ERROR_RANGE: "reserved for implementation-defined server-errors",
+    (-32768, -32000): "reserved for future use"
+}
 
-_ERROR_CODES = {
+_BUILTIN_ERRORS = {
     -32700: "Parse error", 	# Invalid JSON was received by the server. An error occurred on the server while parsing the JSON text.
     -32600: "Invalid Request",  # The JSON sent is not a valid Request object.
     -32601: "Method not found",  # The method does not exist / is not available.
     -32602: "Invalid params",  # Invalid method parameter(s).
     -32603: "Internal error",  # Internal JSON-RPC error.
-    (-32000, -32099): "Server error",  # Reserved for implementation-defined server-errors.
 }
 
-_CUSTOM_ERROR_CODES = {}
+_SERVER_ERRORS = {}
 
-def register_error(code, message, force=False):
-    if not isinstance(code, int):
-        raise Exception("error code must be integer")
-    try:
-        msg, source = get_error(code)
-    except KeyError:
-        _CUSTOM_ERROR_CODES[code] = message
-        return
-    if source == 'reserved':
-        raise Exception(f"error code {code} is reserved: {_ERROR_CODES[code]}")
-    elif code in range(-32768, -32000+1):
-        raise ValueError(f"error code {code} is reserved for future use")
-    elif source == 'custom' and not force:
-        raise Exception(f"error code {code} is already defined: {_CUSTOM_ERROR_CODES[code]}")
-    _CUSTOM_ERROR_CODES[code] = message
-
-def get_error(code, default=None):
-    if not isinstance(code, int):
-        raise Exception("error code must be integer")
-    for source, errors in {'custom': _CUSTOM_ERROR_CODES, 'reserved': _ERROR_CODES}.items():
-        try:
-            return errors[code], source
-        except KeyError:
-            pass
-        for _code, _msg in {c:m for c,m in errors.items() if isinstance(c, tuple)}.items():
-            lower, upper = _code
-            if code in range(lower, upper+1):
-                return _msg, source
-    if not default:
-        raise KeyError(f"error code {code} does not exist")
-    return default, None
-
-
+def set_server_errors(dict_like):
+    errors = dict(dict_like)
+    if any(not isinstance(k, int) or not isinstance(v, str) for k,v in errors.items()):
+        raise TypeError("dict-like of errors must be strings keyed by integers")
+    lower, upper = _SERVER_ERROR_RANGE
+    if any(k not in range(lower, upper+1) for k in errors):
+        raise ValueError("server error codes must be in the range -32768 to -32000")
+    global _SERVER_ERRORS
+    _SERVER_ERRORS = errors
 
 
 class JSONCallError(Exception):
 
-    def __init__(self, code, *args, data=None, _id=None, message=None, **kwargs):
-        try:
-            if isinstance(code, (str, int)):
-                self.code = int(code)
-            else:
-                raise Exception()
-        except Exception:
-            if code:
-                raise Exception("error code must be integer or none/null")
-            self.code = None
-            self.message = message or NO_CODE_ERROR
-        else:
-            # self.code is int
-            try:
-                self.message, source = get_error(self.code)
-                if message and message != self.message:
-                    raise Exception(f"inconsistant message for {source} error code {self.code}")
-            except KeyError:
-                if message:
-                    register_error(self.code, message)
-                    self.message = message
-                else:
-                    raise Exception(f"no message available for error code {self.code}")
-
-
-        self.error_data = data
+    def __init__(self, code, *args, message=None, data=None, _id=None, **kwargs):
+        if not isinstance(code, int):
+            raise TypeError(f"{self.__class__.__name__} requires integer for code")
+        code_msg = {**_BUILTIN_ERRORS, **_SERVER_ERRORS}.get(code, None)
+        if message is not None:
+            if not isinstance(message, str):
+                raise TypeError(f"{self.__class__.__name__} string expected for message")
+            if code_msg and message != code_msg:
+                raise ValueError(f"provided message differs from that of code {code}: {code_msg}")
+        elif code_msg is None:
+            raise ValueError(f"no message available for code {code} - provide message")
+        self.code = code
+        self.message = code_msg or message
+        self.data = data
         self._id = _id if _id is not False else None
         super().__init__(*args, **kwargs)
 
     @property
-    def data(self):
+    def values(self):
         d = {
             'code': self.code,
             'message': self.message
         }
-        if self.error_data:
-            d['data'] = self.error_data
+        if self.data:
+            d['data'] = self.data
         return d
 
     def response(self, encoding='utf8', **kwargs):
         r = json.dumps(
             {
                 'jsonrpc': JSONRPC_VERSION,
-                'error': self.data,
+                'error': self.values,
                 'id': self._id
             },
             ensure_ascii=kwargs.pop('ensure_ascii',False),
@@ -118,17 +85,15 @@ class JSONCallError(Exception):
         return f"{self.message} [code {self.code}]"
 
     def __eq__(self, other):
-        fields = ['code', 'message', 'error_data']
+        fields = ['code', 'message', 'data']
         if not all(
                 this==that for this,that in zip(
                     [getattr(self, f) for f in fields],
                     [getattr(other, f) for f in fields]
                 )
             ):
-            logger.debug("error fail: props")
             return False
         if self.response() != other.response():
-            logger.debug("error fail: response()")
             return False
         return True
 
@@ -142,7 +107,6 @@ class JSONCall:
     ]
 
     def __init__(self, method, jsonrpc=None, params=None, _id=True, clean=True):
-        # id None==null False==not there
         self.jsonrpc = jsonrpc or JSONRPC_VERSION
         self.method = method
         self.params = params
@@ -169,7 +133,7 @@ class JSONCall:
         if self.success is None:
             raise Exception("no result or error has been set")
         elif self.success is False:
-            return self._error.data
+            return self._error.values
         elif self.success is True:
             return None
         raise Exception("internal error")
@@ -180,7 +144,7 @@ class JSONCall:
                 return _id
         except Exception:
             return _id
-        raise JSONCallError(-32600, _id=_id)
+        raise JSONCallError(code=-32600, _id=_id)
 
     def _clean_params(self, params):
         try:
@@ -198,15 +162,11 @@ class JSONCall:
             return params 
 
     def _clean(self, ):
-        #if :
-        #    if self._id:
-        #        raise JSONCallError(-32603, _id=self._id)
         if not self.is_notification:
             if self._id is True:
                 self._id = str(uuid.uuid4()).replace('-','')
             elif self._id:
                 self._id = self._clean_id(self._id)
-            # else id now false or none
         if self.jsonrpc != JSONRPC_VERSION:
             raise JSONCallError(-32600, _id=self._id)
         if not self.method:
@@ -234,13 +194,7 @@ class JSONCall:
         # filter
         d = {k:v for k,v in d.items() if k in cls.FIELDS}
         # fix id field name clash
-        #if :
         d['_id'] = d.pop('id') if 'id' in d else False
-            #not bool(len(str(d['_id'])))
-            #notification = False
-        #else:
-        #    d['_id'] = False
-            #notification = True
         return cls(d.pop('method', None), **d)
 
     @classmethod
@@ -277,7 +231,7 @@ class JSONCall:
         elif self.success is True:
             resp['result'] = self._result
         elif self.success is False:
-            resp['error'] = self._error.data
+            resp['error'] = self._error.values
         else:
             raise Exception("internal error")
         if self._id is not False:
@@ -291,7 +245,7 @@ class JSONCall:
         try:
             r = json.loads(response, **kwargs)
         except Exception:
-            self.set_error(-32700)
+            self.set_error(code=-32700)
             raise self._error
         if r['id'] != self._id:
             raise Exception("Response id doesn't match this call.")
@@ -312,7 +266,7 @@ class JSONCall:
         return self._id is False
 
     @property
-    def data(self):
+    def values(self):
         d = {f:getattr(self, f) for f in self.FIELDS if hasattr(self, f) and getattr(self, f) is not None}
         if self._id is not False:
             d['id'] = self._id
@@ -325,10 +279,10 @@ class JSONCall:
         return str(self)
 
     def __str__(self):
-        return json.dumps(self.data, ensure_ascii=False)
+        return json.dumps(self.values, ensure_ascii=False)
 
     def __eq__(self, other):
-        fields = self.FIELDS + ['_id', 'data', 'success', '_error', '_result']
+        fields = self.FIELDS + ['_id', 'values', 'success', '_error', '_result']
         fields.remove('id')
         if not all(
                 this==that for this,that in zip(
@@ -336,20 +290,8 @@ class JSONCall:
                     [getattr(other, k) for k in fields]
                 )
             ):
-            #print("------------")
-            #logger.debug(f"eq fail: props")
-            #for k,v in {k:getattr(self, k) for k in fields}.items():
-            #    print(f"{k}={v}")
-            #error_data = self._error.data if self._error else None
-            #print(f'error={error_data}')
-            #print("")
-            #for k,v in {k:getattr(other, k) for k in fields}.items():
-            #    print(f"{k}={v}")
-            #error_data = other._error.data if other._error else None
-            #print(f'error={error_data}')
             return False
         if self.success is not None and self.response() != other.response():
-            logger.debug("eq fail: response")
             return False
         return True
         
