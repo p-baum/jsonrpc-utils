@@ -15,17 +15,18 @@ Send the call:
 
 .. code:: python
 
-    the_call = client_jsoncall.request()
+    returned = client_send_func(client_jsoncall.request())
     
-Receive the call on server (responding immediately if parse error)
+Receive the call on server (responding immediately on error)
 
 .. code:: python
 
+    the_call = my_server_readline()
     try:
         server_jsoncall = jsonrpc.JSONCall.from_request(the_call)
     except jsonrpc.JSONCallError as jsoncall_error:
-        # must be a parsing error so a response is already available
-        the_response = jsoncall_error.response()
+        print(f"Error: {jsoncall_error.message}")
+        server_send_func(jsoncall_error.response())
         return
 
 Server calls a method using the request and send it back:
@@ -37,12 +38,12 @@ Server calls a method using the request and send it back:
     kwargs = server_jsoncall.kwargs
     # set the result (or error)
     try:
-        result = getattr(location_of_func, method)(*args, **kwargs)
+        result = getattr(module_or_obj, method)(*args, **kwargs)
         server_jsoncall.set_result(result)
     except Exception as function_error:
         server_jsoncall.set_error(1, message=str(function_error))
     # send the response
-    the_response = server_jsoncall.response() # 'utf8' is default
+    server_send_func(server_jsoncall.response())
 
 Client receives the response.
 Assigning response raises exception if its an error:
@@ -50,7 +51,7 @@ Assigning response raises exception if its an error:
 .. code:: python
 
     try:
-        client_jsoncall.assign_response(the_response)
+        client_jsoncall.assign_response(returned)
     except jsonrpc.JSONCallError as jsoncall_error:
         error = client_jsoncall.error  # or
         error = jsoncall_error.values
